@@ -3,7 +3,7 @@
     "Author": "ZeroTheScyther",
     "Name": "XIVLauncher Android Helper",
     "InternalName": "XlaAndroidHelper",
-    "AssemblyVersion": "0.1.0.0",
+    "AssemblyVersion": "0.1.1.0",
     "Description": "Ships with XIVLauncher Android. Shows the device's battery in the server info bar. Does nothing when the game is not running under XIVLauncher Android.",
     "ApplicableVersion": "any",
     "Tags": [
@@ -18,8 +18,8 @@
     "Punchline": "Connects the game to the XIVLauncher Android app.",
     "AcceptsFeedback": true,
     "RepoUrl": "https://github.com/ZeroTheScyther/XIVLauncher-Android-Helper",
-    "DownloadLinkInstall": "https://github.com/ZeroTheScyther/XIVLauncher-Android-Helper/releases/download/v0.1.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/ZeroTheScyther/XIVLauncher-Android-Helper/releases/download/v0.1.0/latest.zip",
-    "DownloadLinkTesting": "https://github.com/ZeroTheScyther/XIVLauncher-Android-Helper/releases/download/v0.1.0/latest.zip"
+    "DownloadLinkInstall": "https://github.com/ZeroTheScyther/XIVLauncher-Android-Helper/releases/download/v0.1.1/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/ZeroTheScyther/XIVLauncher-Android-Helper/releases/download/v0.1.1/latest.zip",
+    "DownloadLinkTesting": "https://github.com/ZeroTheScyther/XIVLauncher-Android-Helper/releases/download/v0.1.1/latest.zip"
   }
 ]
