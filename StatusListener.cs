@@ -13,6 +13,10 @@ namespace XlaAndroidHelper;
 /// with no bridge of its own. This is the same shape as the existing mouse helper: a fixed port, small datagrams,
 /// no handshake and nothing to clean up if either side disappears. On a desktop the port simply stays quiet, which
 /// is how the plugin knows to keep out of the way.
+///
+/// It also carries text typed on the phone's keyboard, which is the same direction on the same port. Text is handed
+/// to <see cref="TextReceived"/> rather than stored, because it has to be written to the game on the framework
+/// thread and this runs on a socket thread.
 /// </summary>
 public sealed class StatusListener : IDisposable
 {
@@ -27,6 +31,9 @@ public sealed class StatusListener : IDisposable
 
     /// <summary>Why there is no reading, when the socket could not be opened at all.</summary>
     public string? Error { get; }
+
+    /// <summary>Raised on the socket thread when the app sends text the player typed. Never touch game memory here.</summary>
+    public event Action<string>? TextReceived;
 
     public StatusListener()
     {
@@ -52,11 +59,15 @@ public sealed class StatusListener : IDisposable
             {
                 var datagram = socket!.Receive(ref from);
                 var status = JsonSerializer.Deserialize<DeviceStatus>(datagram);
-                if (status != null)
+                if (status == null)
+                    continue;
+                if (status.Text != null)
                 {
-                    status.Received = DateTime.UtcNow;
-                    Latest = status;
+                    TextReceived?.Invoke(status.Text);
+                    continue;
                 }
+                status.Received = DateTime.UtcNow;
+                Latest = status;
             }
             catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
             {

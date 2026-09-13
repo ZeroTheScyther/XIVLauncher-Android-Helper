@@ -11,8 +11,9 @@ namespace XlaAndroidHelper;
 /// The in-game half of XIVLauncher Android.
 ///
 /// The launcher app cannot show anything over the game, and the game knows nothing about the phone it runs on. This
-/// plugin carries what the player needs across that line. Today that is the device's battery, in the server info
-/// bar next to the world name, because a phone running FFXIV empties fast and the game has no idea.
+/// plugin carries what the player needs across that line: the device's battery in the server info bar, because a
+/// phone running FFXIV empties fast and the game has no idea, and the Android keyboard, because the game cannot
+/// ask a touchscreen for text on its own.
 ///
 /// It stays invisible anywhere else: with no launcher sending status the bar entry is simply never shown, so the
 /// same build is harmless on a desktop install.
@@ -29,8 +30,12 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDtrBar DtrBar { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static Dalamud.Plugin.Services.ICommandManager Commands { get; private set; } = null!;
+    [PluginService] internal static IClientState ClientState { get; private set; } = null!;
+    [PluginService] internal static IChatGui Chat { get; private set; } = null!;
 
     private readonly StatusListener listener = new();
+    private readonly InputWatcher keyboard;
     private readonly IDtrBarEntry battery;
     private readonly Configuration configuration;
     private string shown = "";
@@ -38,6 +43,7 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        keyboard = new InputWatcher(listener);
         battery = DtrBar.Get("XIVLauncher Android");
         battery.Shown = false;
         battery.OnClick = ToggleUnit;
@@ -97,6 +103,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnUpdate;
+        keyboard.Dispose();
         battery.Remove();
         listener.Dispose();
     }

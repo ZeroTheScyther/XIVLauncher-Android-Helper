@@ -24,6 +24,13 @@ public sealed class DeviceStatus
     [JsonPropertyName("temperature")]
     public float Temperature { get; set; }
 
+    /// <summary>
+    /// Set when the datagram carries text the player typed on the phone instead of a battery reading. The two share
+    /// a port because they share a direction: everything the app sends the game arrives here.
+    /// </summary>
+    [JsonPropertyName("text")]
+    public string? Text { get; set; }
+
     /// <summary>When this reading arrived, by the game's clock.</summary>
     [JsonIgnore]
     public DateTime Received { get; set; }
