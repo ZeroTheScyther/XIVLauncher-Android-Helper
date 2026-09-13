@@ -33,28 +33,7 @@ seconds:
 
 ### Keyboard
 
-The game cannot ask a touchscreen for text, so the plugin reports when a text field takes focus and writes back what
-the player typed on the phone.
-
-When the focused field changes, the plugin sends one datagram to `127.0.0.1:7949`:
-
-```json
-{ "v": 1, "input": true, "addon": "ChatLog", "text": "", "maxChar": 0, "maxByte": 500, "multiline": false, "allow": 639 }
-```
-
-`maxChar` and `maxByte` are the field's own limits, 0 when unknown. `allow` is the field's AllowedEntities flags,
-which say which characters it accepts. `{ "v": 1, "input": false }` follows when the field loses focus.
-
-The app sends the finished line back to `127.0.0.1:7948`:
-
-```json
-{ "v": 1, "text": "hello" }
-```
-
-It is written into the focused field on the next frame. The app presses Enter itself, as a key.
-
-`/xlakbd` reports the focused field, and `/xlakbd send <text>` writes into it. Both act five seconds after the
-command, because submitting a command closes the chat box and drops its focus.
+The plugin allows you to use your android's keyboard to type in game.
 
 ## Licence
 
