@@ -1,0 +1,75 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the plugin, attach it to a release and point repo.json at it.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Fetch the Dalamud dev distribution
+        run: |
+          curl -fsSL https://goatcorp.github.io/dalamud-distrib/latest.zip -o dalamud.zip
+          mkdir -p "$HOME/dalamud"
+          unzip -q dalamud.zip -d "$HOME/dalamud"
+
+      - name: Build
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          # Dalamud wants a four-part assembly version.
+          case "$(tr -cd '.' <<<"$VERSION" | wc -c)" in
+            1) VERSION="$VERSION.0.0" ;;
+            2) VERSION="$VERSION.0" ;;
+          esac
+          echo "PLUGIN_VERSION=$VERSION" >> "$GITHUB_ENV"
+          DALAMUD_HOME="$HOME/dalamud" dotnet build XlaAndroidHelper.csproj -c Release -p:Version="$VERSION"
+          test -f bin/Release/XlaAndroidHelper/latest.zip
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PRERELEASE=""
+          [[ "$TAG" == *-* ]] && PRERELEASE="--prerelease"
+          gh release create "$TAG" bin/Release/XlaAndroidHelper/latest.zip \
+            --title "XIVLauncher Android Helper ${TAG#v}" --generate-notes $PRERELEASE
+
+      - name: Point repo.json at this release
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ASSET="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/latest.zip"
+          python3 - "$ASSET" <<'PY'
+          import json, sys
+
+          asset = sys.argv[1]
+          with open("bin/Release/XlaAndroidHelper/XlaAndroidHelper.json") as f:
+              manifest = json.load(f)
+
+          # A Dalamud repository is a list of plugin manifests plus where to download each one.
+          manifest["RepoUrl"] = "https://github.com/ZeroTheScyther/XIVLauncher-Android-Helper"
+          for link in ("DownloadLinkInstall", "DownloadLinkUpdate", "DownloadLinkTesting"):
+              manifest[link] = asset
+          with open("repo.json", "w") as f:
+              json.dump([manifest], f, indent=2)
+              f.write("\n")
+          PY
+          git config user.name "ZeroTheScyther"
+          git config user.email "ZeroTheScyther@gmail.com"
+          git add repo.json
+          git commit -m "repo.json: ${TAG#v}"
+          git push origin HEAD:main
