@@ -1,13 +1,8 @@
 # XIVLauncher Android Helper
 
 A Dalamud plugin that connects FINAL FANTASY XIV to the [XIVLauncher Android](https://github.com/ZeroTheScyther/XIVLauncher-Android)
-app it is running under.
+app.
 
-Today it shows the device's battery in the server info bar. Android denies apps access to the battery sysfs, so Wine
-reports no battery at all and nothing in game can see one. The launcher app reads it and sends it over loopback.
-
-The plugin is installed and kept up to date by the launcher app. It does nothing on a desktop install: with no
-launcher sending status, the info bar entry never appears.
 
 ## Repository
 
@@ -25,8 +20,6 @@ Needs the .NET 10 SDK and a Dalamud dev distribution.
 DALAMUD_HOME=~/.xlcore/dalamud/Hooks/dev dotnet build XlaAndroidHelper.csproj -c Release
 ```
 
-The build writes `bin/Release/XlaAndroidHelper/latest.zip`, which is what a release ships.
-
 ## Protocol
 
 The launcher sends one UDP datagram to `127.0.0.1:7948` whenever the device status changes, and at least every 45
@@ -36,8 +29,7 @@ seconds:
 { "v": 1, "battery": 32, "charging": false, "temperature": 31.5 }
 ```
 
-`battery` is a percentage, or -1 when unknown. `temperature` is degrees Celsius, or 0 when unknown. A reading older
-than three minutes is treated as no launcher, and the info bar entry hides itself.
+`battery` is a percentage, or -1 when unknown. `temperature` can be toggled between Fahrenheit and Celsius by tapping the battery indicator.
 
 ## Licence
 

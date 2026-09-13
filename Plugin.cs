@@ -25,18 +25,22 @@ public sealed class Plugin : IDalamudPlugin
     /// <summary>At or below this, the entry carries a warning icon.</summary>
     private const int LowBattery = 15;
 
+    [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static IDtrBar DtrBar { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private readonly StatusListener listener = new();
     private readonly IDtrBarEntry battery;
+    private readonly Configuration configuration;
     private string shown = "";
 
     public Plugin()
     {
+        configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         battery = DtrBar.Get("XIVLauncher Android");
         battery.Shown = false;
+        battery.OnClick = ToggleUnit;
         if (listener.Error is { } error)
             Log.Warning($"Not listening for launcher status: {error}");
         Framework.Update += OnUpdate;
@@ -52,25 +56,42 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
 
-        // "Battery: 32%", with one of the game's own icons between the label and the number: lightning while
+        // "Battery: 32% 31°C", with one of the game's own icons between the label and the number: lightning while
         // charging, the warning triangle when it is nearly empty. The game has no battery glyph of its own.
+        // The temperature only appears when the launcher could read it, and clicking the entry switches its unit.
         var icon = status.Charging ? BitmapFontIcon.ElementLightning
             : status.Battery <= LowBattery ? BitmapFontIcon.Warning
             : BitmapFontIcon.None;
-        var line = $"{icon}|{status.Battery}";
+        var temperature = Temperature(status);
+        var line = $"{icon}|{status.Battery}|{temperature}";
         if (line != shown)
         {
             var entry = new SeStringBuilder().AddText("Battery: ");
             if (icon != BitmapFontIcon.None)
                 entry.AddIcon(icon);
-            entry.AddText($"{status.Battery}%");
+            entry.AddText($"{status.Battery}%{temperature}");
             battery.Text = entry.Build();
-            battery.Tooltip = status.Temperature > 0
-                ? $"Device battery, {status.Temperature:F0}\u00b0C"
+            battery.Tooltip = temperature.Length > 0
+                ? "Device battery. Click to switch between Celsius and Fahrenheit."
                 : "Device battery";
             shown = line;
         }
         battery.Shown = true;
+    }
+
+    /// <summary>" 31\u00b0C", or nothing when the launcher could not read it.</summary>
+    private string Temperature(DeviceStatus status) => status.Temperature <= 0
+        ? ""
+        : configuration.Fahrenheit
+            ? $" {status.Temperature * 9 / 5 + 32:F0}\u00b0F"
+            : $" {status.Temperature:F0}\u00b0C";
+
+    /// <summary>Any click, because a tap on a phone arrives as a left click.</summary>
+    private void ToggleUnit(DtrInteractionEvent click)
+    {
+        configuration.Fahrenheit = !configuration.Fahrenheit;
+        PluginInterface.SavePluginConfig(configuration);
+        shown = "";   // redraw on the next frame
     }
 
     public void Dispose()
