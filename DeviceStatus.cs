@@ -1,0 +1,30 @@
+using System;
+using System.Text.Json.Serialization;
+
+namespace XlaAndroidHelper;
+
+/// <summary>
+/// What the launcher app reports about the device it is running on. Sent as one small JSON datagram whenever
+/// something changes, and at least once a minute so a stale reading can be spotted.
+/// </summary>
+public sealed class DeviceStatus
+{
+    /// <summary>Protocol version. The app and the plugin ship together, but a mismatch must not throw.</summary>
+    [JsonPropertyName("v")]
+    public int Version { get; set; }
+
+    /// <summary>Battery charge, 0-100, or -1 when the app could not read it.</summary>
+    [JsonPropertyName("battery")]
+    public int Battery { get; set; } = -1;
+
+    [JsonPropertyName("charging")]
+    public bool Charging { get; set; }
+
+    /// <summary>Battery temperature in degrees Celsius, or 0 when unknown.</summary>
+    [JsonPropertyName("temperature")]
+    public float Temperature { get; set; }
+
+    /// <summary>When this reading arrived, by the game's clock.</summary>
+    [JsonIgnore]
+    public DateTime Received { get; set; }
+}

@@ -1,0 +1,11 @@
+{
+  "Author": "ZeroTheScyther",
+  "Name": "XIVLauncher Android Helper",
+  "Punchline": "Connects the game to the XIVLauncher Android app.",
+  "Description": "Ships with XIVLauncher Android. Shows the device's battery in the server info bar. Does nothing when the game is not running under XIVLauncher Android.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "utility",
+    "android"
+  ]
+}

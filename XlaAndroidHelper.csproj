@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+
+  <!-- The Dalamud SDK supplies TargetFramework, Nullable, LangVersion and the manifest fields.
+       Build with DALAMUD_HOME pointing at a Dalamud dev distribution. -->
+  <PropertyGroup>
+    <Version>0.1.0.0</Version>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>
