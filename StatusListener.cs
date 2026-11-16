@@ -33,7 +33,7 @@ public sealed class StatusListener : IDisposable
     public string? Error { get; }
 
     /// <summary>Raised on the socket thread when the app sends text the player typed. Never touch game memory here.</summary>
-    public event Action<string>? TextReceived;
+    public event Action<DeviceStatus>? TextReceived;
 
     public StatusListener()
     {
@@ -63,7 +63,7 @@ public sealed class StatusListener : IDisposable
                     continue;
                 if (status.Text != null)
                 {
-                    TextReceived?.Invoke(status.Text);
+                    TextReceived?.Invoke(status);
                     continue;
                 }
                 status.Received = DateTime.UtcNow;

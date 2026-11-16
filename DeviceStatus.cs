@@ -31,6 +31,14 @@ public sealed class DeviceStatus
     [JsonPropertyName("text")]
     public string? Text { get; set; }
 
+    /// <summary>Which field the text is for: "game" (the default, and all a version 1 app sends) or "imgui".</summary>
+    [JsonPropertyName("target")]
+    public string? Target { get; set; }
+
+    /// <summary>Echoed back in the acknowledgement. 0 from a version 1 app, which expects none.</summary>
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
     /// <summary>When this reading arrived, by the game's clock.</summary>
     [JsonIgnore]
     public DateTime Received { get; set; }

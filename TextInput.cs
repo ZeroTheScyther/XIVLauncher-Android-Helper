@@ -23,8 +23,9 @@ public static unsafe class TextInput
     }
 
     /// <summary>
-    /// The text field the game has focus on, or null. Found through the focused addon's node list: a component node
-    /// whose component reports itself as a text input.
+    /// The text field the game has focus on, or null. Found in the focused addon's node list: the text input the
+    /// game's text input manager is targeting. An addon can hold several (Party Finder has Keywords and Excluded
+    /// Words), and the first in the list is not necessarily the one with the cursor.
     /// </summary>
     public static AtkComponentTextInput* Focused(out string addonName)
     {
@@ -37,19 +38,33 @@ public static unsafe class TextInput
             return null;
         addonName = addon->NameString;
 
+        var input = stage->AtkInputManager;
+        var target = input == null || input->TextInput == null ? null : input->TextInput->TargetTextInputEventInterface;
+        var focusedNode = input == null ? null : input->FocusedNode;
+
         var nodes = addon->UldManager.NodeList;
         if (nodes == null)
             return null;
+        AtkComponentTextInput* first = null;
+        AtkComponentTextInput* holdsFocus = null;
         for (var i = 0; i < addon->UldManager.NodeListCount; i++)
         {
             var node = nodes[i];
             if (node == null || (int)node->Type < 1000)
                 continue;   // only component nodes carry a component
             var component = ((AtkComponentNode*)node)->Component;
-            if (component != null && component->GetComponentType() == ComponentType.TextInput)
-                return (AtkComponentTextInput*)component;
+            if (component == null || component->GetComponentType() != ComponentType.TextInput)
+                continue;
+            var field = (AtkComponentTextInput*)component;
+            if (target != null && target == &field->AtkTextInputEventInterface)
+                return field;
+            if (holdsFocus == null && focusedNode != null
+                && (field->OwnerNode == focusedNode || component->IsOwnerNodeAncestorOf(focusedNode)))
+                holdsFocus = field;
+            if (first == null)
+                first = field;
         }
-        return null;
+        return holdsFocus != null ? holdsFocus : first;
     }
 
     /// <summary>What the app needs to put a correct keyboard on screen, read from the focused field itself.</summary>
@@ -78,9 +93,6 @@ public static unsafe class TextInput
     /// <summary>
     /// Replaces the focused field's contents with <paramref name="text"/>, trimmed to what the field accepts.
     /// Returns false when there is nothing focused to write to.
-    ///
-    /// SetText rather than InsertText: the player composes the whole line on the phone and sends it in one go, so
-    /// there is no cursor to respect. Verified on device.
     /// </summary>
     public static bool Write(string text, out string addonName)
     {
@@ -88,8 +100,12 @@ public static unsafe class TextInput
         if (field == null)
             return false;
 
+        // InsertText, the path typing and pasting take, rather than SetText: SetText only changes what the field
+        // shows. Windows like Party Finder keep their own copy of the value, updated by that path, and redraw the
+        // field from it on deselect, so set text vanished (while still sitting in the field's history).
         var data = field->ComponentTextData;
-        field->SetText(Trim(text, (int)data.MaxChar, (int)data.MaxByte));
+        field->SetText("");
+        field->InsertText(Trim(text, (int)data.MaxChar, (int)data.MaxByte), false);
         return true;
     }
 

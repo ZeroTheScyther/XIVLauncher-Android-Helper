@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Command;
 using Dalamud.Plugin.Services;
 
@@ -12,11 +13,14 @@ namespace XlaAndroidHelper;
 /// Tells the launcher app when the game wants text, and writes back what the player typed on the phone.
 ///
 /// The game runs under Wine with no idea that a touchscreen exists, and Android will not show its keyboard for a
-/// field it cannot see. So the plugin watches the game's own "text input active" flag and reports across loopback;
-/// the app puts a real Android input bar on screen; the finished string comes back here and goes into the field.
+/// field it cannot see. So the plugin watches for a text field taking input and reports across loopback; the app puts
+/// a real Android input bar on screen; the finished string comes back here and goes into the field.
 ///
-/// Only the flag is read per frame. The interface itself is walked on a transition, and the string is written on
-/// the framework thread, never from the socket thread.
+/// Two kinds of field. The game's own are found through its "text input active" flag and written with SetText.
+/// Dalamud and plugin windows are ImGui, which the game knows nothing about: ImGui's WantTextInput says one is
+/// active, and the text goes in through ImGui's own character input, from the draw callback, inside ImGui's frame.
+///
+/// Every delivery is acknowledged, so the app can type the text itself when nothing here could take it.
 /// </summary>
 public sealed class InputWatcher : IDisposable
 {
@@ -27,11 +31,20 @@ public sealed class InputWatcher : IDisposable
     private static readonly TimeSpan CommandDelay = TimeSpan.FromSeconds(5);
 
     private readonly UdpClient sender = new();
+    private readonly object sending = new();
     private readonly IPEndPoint app = new(IPAddress.Loopback, AppPort);
-    private readonly ConcurrentQueue<string> incoming = new();
+    private readonly ConcurrentQueue<DeviceStatus> incoming = new();
+    private readonly ConcurrentQueue<DeviceStatus> forImGui = new();
     private readonly StatusListener listener;
 
-    private bool wasActive;
+    /// <summary>Written by the draw callback, read by the framework update.</summary>
+    private volatile bool imguiActive;
+
+    /// <summary>
+    /// The kind last reported: "game", "imgui", or null for no field. Starts as neither, so the first frame reports
+    /// "no field": the app learns the plugin is here, and can open the chat itself for a line typed before any field.
+    /// </summary>
+    private string? reported = "unknown";
     private string? pendingVerb;
     private string pendingText = "";
     private DateTime pendingAt;
@@ -45,10 +58,11 @@ public sealed class InputWatcher : IDisposable
             HelpMessage = "XIVLauncher Android keyboard: /xlakbd info | send <text>",
         });
         Plugin.Framework.Update += OnUpdate;
+        Plugin.PluginInterface.UiBuilder.Draw += OnDraw;
     }
 
     /// <summary>Arrives on the socket thread, so it is only queued here.</summary>
-    private void OnTextReceived(string text) => incoming.Enqueue(text);
+    private void OnTextReceived(DeviceStatus message) => incoming.Enqueue(message);
 
     private void OnUpdate(IFramework framework)
     {
@@ -64,55 +78,105 @@ public sealed class InputWatcher : IDisposable
         }
     }
 
-    private void Poll()
-    {
-        // Dalamud loads plugins during the game's own start-up, on the game's main thread, before there is any
-        // interface to look at. Walking it that early deadlocks the game at a black screen, so nothing below runs
-        // until the player is actually in the world.
-        if (!Plugin.ClientState.IsLoggedIn)
-        {
-            if (wasActive)
-            {
-                wasActive = false;
-                Send(new FieldState { Active = false });
-            }
-            return;
-        }
-
-        while (incoming.TryDequeue(out var text))
-            Deliver(text);
-
-        RunPendingCommand();
-
-        var active = TextInput.IsActive();
-        if (active == wasActive)
-            return;
-        wasActive = active;
-
-        // Only here, on a change, is the interface walked: the app needs the field's limits and current contents to
-        // open its keyboard on.
-        var state = active ? TextInput.Describe() : new FieldState { Active = false };
-        Plugin.Log.Information(active
-            ? $"text input active in \"{state.Addon}\" (max {state.MaxChar} chars, {state.MaxByte} bytes, allow {state.Allow:X4})"
-            : "text input inactive");
-        Send(state);
-    }
-
-    /// <summary>Puts a string the player typed on the phone into the game's focused field.</summary>
-    private void Deliver(string text)
-    {
-        if (TextInput.Write(text, out var addonName))
-            Plugin.Log.Information($"wrote {text.Length} characters into \"{addonName}\"");
-        else
-            Plugin.Log.Warning("nothing focused to write into; text dropped");
-    }
-
-    private void Send(FieldState state)
+    /// <summary>
+    /// ImGui state is only valid inside ImGui's frame, so both reading WantTextInput and adding characters happen here.
+    /// Characters added now are typed into the active field when ImGui starts its next frame.
+    /// </summary>
+    private void OnDraw()
     {
         try
         {
-            var datagram = JsonSerializer.SerializeToUtf8Bytes(state);
-            sender.Send(datagram, datagram.Length, app);
+            var io = ImGui.GetIO();
+            imguiActive = io.WantTextInput;
+            while (forImGui.TryDequeue(out var message))
+            {
+                var ok = io.WantTextInput;
+                if (ok)
+                    io.AddInputCharacters(message.Text!);
+                Plugin.Log.Information(ok
+                    ? $"typed {message.Text!.Length} characters into an ImGui field"
+                    : "no ImGui field active; text left to the app");
+                Acknowledge(message.Id, ok);
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.PluginInterface.UiBuilder.Draw -= OnDraw;
+            imguiActive = false;
+            Plugin.Log.Error(ex, "ImGui keyboard watcher stopped");
+        }
+    }
+
+    private void Poll()
+    {
+        // Dalamud loads plugins during the game's own start-up, on the game's main thread, before there is any
+        // interface to look at. Walking it that early deadlocks the game at a black screen, so the game's fields are
+        // not looked at until the player is actually in the world. ImGui is safe to ask at any time: Dalamud's own
+        // windows, the plugin installer among them, are up on the title screen too.
+        var loggedIn = Plugin.ClientState.IsLoggedIn;
+
+        while (incoming.TryDequeue(out var message))
+            Deliver(message, loggedIn);
+
+        if (loggedIn)
+            RunPendingCommand();
+
+        // An ImGui window draws over the game, so a field there wins when both claim the keyboard.
+        var kind = imguiActive ? "imgui" : loggedIn && TextInput.IsActive() ? "game" : null;
+        if (kind == reported)
+            return;
+        reported = kind;
+
+        // Only here, on a change, is the interface walked: the app needs the field's limits and current contents to
+        // open its keyboard on.
+        var state = kind switch
+        {
+            "game" => TextInput.Describe(),
+            "imgui" => new FieldState { Active = true, Kind = "imgui", Addon = "ImGui" },
+            _ => new FieldState { Active = false },
+        };
+        Plugin.Log.Information(kind switch
+        {
+            "game" => $"text input active in \"{state.Addon}\" (max {state.MaxChar} chars, {state.MaxByte} bytes, allow {state.Allow:X4})",
+            "imgui" => "text input active in an ImGui window",
+            _ => "text input inactive",
+        });
+        Send(state);
+    }
+
+    /// <summary>Routes a string the player typed on the phone to the field it was typed for.</summary>
+    private void Deliver(DeviceStatus message, bool loggedIn)
+    {
+        if (message.Target == "imgui")
+        {
+            forImGui.Enqueue(message);   // written and acknowledged by the next draw
+            return;
+        }
+
+        var ok = loggedIn && TextInput.Write(message.Text!, out var addonName);
+        Plugin.Log.Information(ok
+            ? $"wrote {message.Text!.Length} characters into the game's field"
+            : "no game field to write into; text left to the app");
+        Acknowledge(message.Id, ok);
+    }
+
+    /// <summary>Tells the app whether its text arrived. A version 1 app sends no id and expects no answer.</summary>
+    private void Acknowledge(int id, bool ok)
+    {
+        if (id <= 0)
+            return;
+        SendBytes(JsonSerializer.SerializeToUtf8Bytes(new { v = 2, ack = id, ok }));
+    }
+
+    private void Send(FieldState state) => SendBytes(JsonSerializer.SerializeToUtf8Bytes(state));
+
+    /// <summary>From the framework update and the draw callback, so one at a time.</summary>
+    private void SendBytes(byte[] datagram)
+    {
+        try
+        {
+            lock (sending)
+                sender.Send(datagram, datagram.Length, app);
         }
         catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
         {
@@ -171,6 +235,7 @@ public sealed class InputWatcher : IDisposable
     public void Dispose()
     {
         Plugin.Framework.Update -= OnUpdate;
+        Plugin.PluginInterface.UiBuilder.Draw -= OnDraw;
         Plugin.Commands.RemoveHandler("/xlakbd");
         listener.TextReceived -= OnTextReceived;
         sender.Dispose();

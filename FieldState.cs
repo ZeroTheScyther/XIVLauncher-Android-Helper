@@ -9,8 +9,19 @@ namespace XlaAndroidHelper;
 public sealed class FieldState
 {
     /// <summary>Protocol version, so a mismatched pair can say so instead of misreading each other.</summary>
+    /// <summary>
+    /// 2 adds <see cref="Kind"/> and acknowledges every delivery, which is how the app knows it may fall back to
+    /// typing the text itself. Version 1 never acknowledges, so the app must not fall back for it.
+    /// </summary>
     [JsonPropertyName("v")]
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
+
+    /// <summary>
+    /// "game" for one of the game's own fields, "imgui" for a Dalamud or plugin window. An ImGui field shares neither
+    /// its contents nor its limits, so the app opens on an empty line and the text is inserted at the cursor.
+    /// </summary>
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "game";
 
     /// <summary>Whether the game is taking text right now.</summary>
     [JsonPropertyName("input")]
