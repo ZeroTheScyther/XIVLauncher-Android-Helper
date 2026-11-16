@@ -1,3 +1,5 @@
+using Dalamud.Game.Addon.Lifecycle;
+using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using System;
 using System.Collections.Concurrent;
 using System.Net;
@@ -59,7 +61,13 @@ public sealed class InputWatcher : IDisposable
         });
         Plugin.Framework.Update += OnUpdate;
         Plugin.PluginInterface.UiBuilder.Draw += OnDraw;
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, OnAddonSetup);
     }
+
+    /// <summary>Set once the game has built its first window: from then on its interface exists and is safe to walk.</summary>
+    private volatile bool gameUiReady;
+
+    private void OnAddonSetup(AddonEvent type, AddonArgs args) => gameUiReady = true;
 
     /// <summary>Arrives on the socket thread, so it is only queued here.</summary>
     private void OnTextReceived(DeviceStatus message) => incoming.Enqueue(message);
@@ -111,18 +119,20 @@ public sealed class InputWatcher : IDisposable
     {
         // Dalamud loads plugins during the game's own start-up, on the game's main thread, before there is any
         // interface to look at. Walking it that early deadlocks the game at a black screen, so the game's fields are
-        // not looked at until the player is actually in the world. ImGui is safe to ask at any time: Dalamud's own
-        // windows, the plugin installer among them, are up on the title screen too.
+        // not looked at until the game has set up its first window. Waiting for login instead missed every field
+        // before it: character creation's name, for one. ImGui is safe to ask at any time: Dalamud's own windows,
+        // the plugin installer among them, are up on the title screen too.
+        var gameUi = gameUiReady || Plugin.ClientState.IsLoggedIn;
         var loggedIn = Plugin.ClientState.IsLoggedIn;
 
         while (incoming.TryDequeue(out var message))
-            Deliver(message, loggedIn);
+            Deliver(message, gameUi);
 
         if (loggedIn)
             RunPendingCommand();
 
         // An ImGui window draws over the game, so a field there wins when both claim the keyboard.
-        var kind = imguiActive ? "imgui" : loggedIn && TextInput.IsActive() ? "game" : null;
+        var kind = imguiActive ? "imgui" : gameUi && TextInput.IsActive() ? "game" : null;
         if (kind == reported)
             return;
         reported = kind;
@@ -145,7 +155,7 @@ public sealed class InputWatcher : IDisposable
     }
 
     /// <summary>Routes a string the player typed on the phone to the field it was typed for.</summary>
-    private void Deliver(DeviceStatus message, bool loggedIn)
+    private void Deliver(DeviceStatus message, bool gameUi)
     {
         if (message.Target == "imgui")
         {
@@ -153,7 +163,7 @@ public sealed class InputWatcher : IDisposable
             return;
         }
 
-        var ok = loggedIn && TextInput.Write(message.Text!, out var addonName);
+        var ok = gameUi && TextInput.Write(message.Text!, out var addonName);
         Plugin.Log.Information(ok
             ? $"wrote {message.Text!.Length} characters into the game's field"
             : "no game field to write into; text left to the app");
@@ -236,6 +246,7 @@ public sealed class InputWatcher : IDisposable
     {
         Plugin.Framework.Update -= OnUpdate;
         Plugin.PluginInterface.UiBuilder.Draw -= OnDraw;
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, OnAddonSetup);
         Plugin.Commands.RemoveHandler("/xlakbd");
         listener.TextReceived -= OnTextReceived;
         sender.Dispose();
